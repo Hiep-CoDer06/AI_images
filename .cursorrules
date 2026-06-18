@@ -1,0 +1,7 @@
+**Mục tiêu dự án:** Nghiên cứu kiến trúc Deep JSCC kết hợp bộ điều khiển Logic Mờ (FIS) 2 lớp cho việc truyền tải ảnh không dây.
+
+**Nhiệm vụ trọng tâm hiện tại (Vòng 2):** Nâng cấp bộ điều khiển Full FIS để nó nhận thức được kênh truyền tức thời (Channel-Aware) bằng cách sử dụng tham số độ tin cậy kênh truyền thay vì chỉ dùng SNR danh định.
+
+**Quy tắc viết code:** - Luôn đảm bảo tính công bằng (fairness) khi chạy Ablation study giữa các mô hình (baseline, linear, importance_only, snr_only, full_ctx).
+- Không tự ý thay đổi kiến trúc Backbone (Encoder/Decoder) hay hàm Loss MSE cơ bản. Chỉ tập trung vào bộ điều khiển không gian (Spatial Controller).
+- Giữ nguyên cơ chế `_pending_fading` để đảm bảo các mô hình dùng chung một điều kiện nhiễu h.

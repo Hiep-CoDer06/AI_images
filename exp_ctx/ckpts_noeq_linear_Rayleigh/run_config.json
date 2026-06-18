@@ -24,7 +24,7 @@
   "rayleigh_equalize": false,
   "seed": 1234,
   "ratio": 0.16666666666666666,
-  "baseline_ckpt": "exp_ctx/ckpts_noeq_baseline_Rayleigh/baseline_best.pth",
+  "baseline_ckpt": "",
   "warmstart_controller_only_epochs": 10,
   "finetune_lr": 1e-05,
   "snr_only_use_baseline_backbone": false

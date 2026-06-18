@@ -19,7 +19,7 @@
 #
 #  Tùy chọn khác:
 #    --fast        : chế độ nhanh (chỉ 3 SNR: 1 7 13)
-#    --snr N       : SNR dB cho diagnose (mặc định: 13)
+#    --snr N       : SNR dB cho diagnose (mặc định: 1)
 #    --no-warmstart: tắt warm-start từ baseline (train FIS from scratch)
 #    --dry         : chỉ in lệnh, không chạy thực sự
 #=============================================================================
@@ -42,8 +42,8 @@ FIS_CKPT_NAME="fis_power_best.pth"
 
 # --------------- Warm-start ---------------
 WARMSTART=true
-WARMSTART_CONTROLLER_EPOCHS=10
-FINETUNE_LR=1e-5
+WARMSTART_CONTROLLER_EPOCHS=20
+FINETUNE_LR=0.0001
 
 # --------------- Chế độ ---------------
 TRAIN_ONLY=false
@@ -63,7 +63,7 @@ for arg in "$@"; do
         --noeq)         RUN_AWGN=false; RUN_EQ=false ;;
         --eq)           RUN_AWGN=false; RUN_NOEQ=false ;;
         --rayleigh)     RUN_AWGN=false ;;
-        --snr)          shift; SNR_DB="${1:-13}" ;;
+        --snr)          shift; SNR_DB="${1:-1}" ;;
         --train-only)   DIAG_ONLY=false; SIMS_ONLY=false; TRAIN_ONLY=true ;;
         --diag-only)    TRAIN_ONLY=false; SIMS_ONLY=false; DIAG_ONLY=true ;;
         --sims-only)    TRAIN_ONLY=false; DIAG_ONLY=false; SIMS_ONLY=true ;;
@@ -86,17 +86,65 @@ else
 fi
 
 # ================================================================
+#  HÀM TRA CỨU ĐƯỜNG DẪN (khớp 100% với cây thư mục hiện tại)
+# ================================================================
+
+# Trả về đường dẫn tuyệt đối tới thư mục checkpoint Baseline.
+#  $1 = TAG  (awgn | noeq | eq)
+baseline_dir() {
+    local tag="$1"
+    case "$tag" in
+        awgn) echo "${BASE_DIR}/ckpts_baseline_AWGN" ;;
+        noeq) echo "${BASE_DIR}/ckpts_noeq_baseline_Rayleigh" ;;
+        eq)   echo "${BASE_DIR}/ckpts_eq_baseline_Rayleigh" ;;
+        *)    echo "❌ baseline_dir: TAG không hợp lệ '$tag'" >&2; return 1 ;;
+    esac
+}
+
+# Trả về đường dẫn tuyệt đối tới thư mục checkpoint FIS.
+#  $1 = TAG  (awgn | noeq | eq)
+#  $2 = MODE (linear | importance_only | snr_only | full)
+fis_dir() {
+    local tag="$1"
+    local mode="$2"
+    case "$tag" in
+        awgn) echo "${BASE_DIR}/ckpts_${mode}_AWGN_round2" ;;
+        noeq) echo "${BASE_DIR}/ckpts_noeq_${mode}_Rayleigh_round2" ;;
+        eq)   echo "${BASE_DIR}/ckpts_eq_${mode}_Rayleigh_round2" ;;
+        *)    echo "❌ fis_dir: TAG không hợp lệ '$tag'" >&2; return 1 ;;
+    esac
+}
+
+# Trả về channel label thực tế dùng cho train/eval (Rayleigh có 2 nhánh noeq/eq).
+#  $1 = TAG  (awgn | noeq | eq)
+channel_label() {
+    case "$1" in
+        awgn) echo "AWGN" ;;
+        noeq|eq) echo "Rayleigh" ;;
+        *) echo "❌ channel_label: TAG không hợp lệ '$1'" >&2; return 1 ;;
+    esac
+}
+
+# Trả về cờ --rayleigh_equalize nếu cần (rỗng nếu không).
+#  $1 = TAG  (awgn | noeq | eq)
+equalize_flag() {
+    if [ "$1" = "eq" ]; then echo "--rayleigh_equalize"; else echo ""; fi
+}
+
+# ================================================================
 #  HÀM
 # ================================================================
 
 # --- Part 1: Train Baseline ---
-# $1=TAG  $2=CHANNEL  $3=DIR_SUFFIX  $4=EXTRA_FLAG
+# $1=TAG
 run_baseline() {
     local TAG=$1
-    local CHANNEL=$2
-    local DIR_SUFFIX="${3:-}"
-    local EXTRA_FLAG="${4:-}"
-    local SAVE_DIR="${BASE_DIR}/ckpts_${TAG}_baseline_${CHANNEL}${DIR_SUFFIX}"
+    local CHANNEL
+    CHANNEL=$(channel_label "$TAG")
+    local EXTRA_FLAG
+    EXTRA_FLAG=$(equalize_flag "$TAG")
+    local SAVE_DIR
+    SAVE_DIR=$(baseline_dir "$TAG")
 
     local CMD="python train_baseline.py \
   --dataset ${DATASET} --image_size ${IMAGE_SIZE} \
@@ -116,19 +164,23 @@ run_baseline() {
 }
 
 # --- Part 1: Train FIS (với warm-start từ baseline) ---
-# $1=MODE  $2=TAG  $3=CHANNEL  $4=DIR_SUFFIX  $5=EXTRA_FLAG
+# $1=MODE  $2=TAG
 run_fis() {
     local MODE=$1
     local TAG=$2
-    local CHANNEL=$3
-    local DIR_SUFFIX="${4:-}"
-    local EXTRA_FLAG="${5:-}"
-    local SAVE_DIR="${BASE_DIR}/ckpts_${TAG}_${MODE}_${CHANNEL}${DIR_SUFFIX}"
+    local CHANNEL
+    CHANNEL=$(channel_label "$TAG")
+    local EXTRA_FLAG
+    EXTRA_FLAG=$(equalize_flag "$TAG")
+    local SAVE_DIR
+    SAVE_DIR=$(fis_dir "$TAG" "$MODE")
 
     # ── Tạo warm-start flag ──
     local WARMSTART_FLAG=""
     if [ "$WARMSTART" = true ]; then
-        local BASELINE_CKPT="${BASE_DIR}/ckpts_${TAG}_baseline_${CHANNEL}${DIR_SUFFIX}/${BASELINE_CKPT_NAME}"
+        local BASELINE_CKPT="${SAVE_DIR_BASELINE:-$(baseline_dir "$TAG")}/${BASELINE_CKPT_NAME}"
+        # Ghi đè đường dẫn baseline đúng với từng TAG
+        BASELINE_CKPT="$(baseline_dir "$TAG")/${BASELINE_CKPT_NAME}"
         if [ -f "${BASELINE_CKPT}" ]; then
             WARMSTART_FLAG="--baseline_ckpt ${BASELINE_CKPT} \
   --warmstart_controller_only_epochs ${WARMSTART_CONTROLLER_EPOCHS} \
@@ -157,20 +209,21 @@ run_fis() {
 }
 
 # --- Part 2: Diagnose ---
-# $1=TAG  $2=CHANNEL  $3=DIR_SUFFIX  $4=EXTRA_FLAG  $5=LABEL
+# $1=TAG
 run_diag() {
     local TAG=$1
-    local CHANNEL=$2
-    local DIR_SUFFIX="${3:-}"
-    local EXTRA_FLAG="${4:-}"
-    local LABEL="${5:-Rayleigh}"
+    local CHANNEL
+    CHANNEL=$(channel_label "$TAG")
+    local LABEL="$CHANNEL"
+    local EXTRA_FLAG
+    EXTRA_FLAG=$(equalize_flag "$TAG")
     local SAVE_DIR="diag_${TAG}_snr${SNR_DB}"
 
-    local CKPT_BASE="${BASE_DIR}/ckpts_${TAG}_baseline_${CHANNEL}${DIR_SUFFIX}/${BASELINE_CKPT_NAME}"
-    local CKPT_LIN="${BASE_DIR}/ckpts_${TAG}_linear_${CHANNEL}${DIR_SUFFIX}/${FIS_CKPT_NAME}"
-    local CKPT_IMP="${BASE_DIR}/ckpts_${TAG}_importance_only_${CHANNEL}${DIR_SUFFIX}/${FIS_CKPT_NAME}"
-    local CKPT_SNR="${BASE_DIR}/ckpts_${TAG}_snr_only_${CHANNEL}${DIR_SUFFIX}/${FIS_CKPT_NAME}"
-    local CKPT_FULL="${BASE_DIR}/ckpts_${TAG}_full_${CHANNEL}${DIR_SUFFIX}/${FIS_CKPT_NAME}"
+    local CKPT_BASE="$(baseline_dir "$TAG")/${BASELINE_CKPT_NAME}"
+    local CKPT_LIN="$(fis_dir "$TAG" "linear")/${FIS_CKPT_NAME}"
+    local CKPT_IMP="$(fis_dir "$TAG" "importance_only")/${FIS_CKPT_NAME}"
+    local CKPT_SNR="$(fis_dir "$TAG" "snr_only")/${FIS_CKPT_NAME}"
+    local CKPT_FULL="$(fis_dir "$TAG" "full")/${FIS_CKPT_NAME}"
 
     local CMD="python diagnose_controller.py \
   --baseline_ckpt ${CKPT_BASE} \
@@ -192,27 +245,28 @@ run_diag() {
 }
 
 # --- Part 3: Paper Sims (PSNR/SSIM toàn bộ test set) ---
-# $1=TAG  $2=CHANNEL  $3=DIR_SUFFIX  $4=EXTRA_FLAG  $5=LABEL
+# $1=TAG
 run_paper_sims() {
     local TAG=$1
-    local CHANNEL=$2
-    local DIR_SUFFIX="${3:-}"
-    local EXTRA_FLAG="${4:-}"
-    local LABEL="${5:-Rayleigh}"
+    local CHANNEL
+    CHANNEL=$(channel_label "$TAG")
+    local LABEL="$CHANNEL"
+    local EXTRA_FLAG
+    EXTRA_FLAG=$(equalize_flag "$TAG")
     local SAVE_DIR="paper_sims_${TAG}"
 
     # Tạo JSON map cho FIS checkpoints (đường dẫn chính xác)
     local MAP_FILE=".tmp_fis_map_${TAG}.json"
     cat > "${MAP_FILE}" << MAP_EOF
 {
-  "linear":            "${BASE_DIR}/ckpts_${TAG}_linear_${CHANNEL}${DIR_SUFFIX}/${FIS_CKPT_NAME}",
-  "importance_only":   "${BASE_DIR}/ckpts_${TAG}_importance_only_${CHANNEL}${DIR_SUFFIX}/${FIS_CKPT_NAME}",
-  "snr_only":          "${BASE_DIR}/ckpts_${TAG}_snr_only_${CHANNEL}${DIR_SUFFIX}/${FIS_CKPT_NAME}",
-  "full":              "${BASE_DIR}/ckpts_${TAG}_full_${CHANNEL}${DIR_SUFFIX}/${FIS_CKPT_NAME}"
+  "linear":            "$(fis_dir "$TAG" "linear")/${FIS_CKPT_NAME}",
+  "importance_only":   "$(fis_dir "$TAG" "importance_only")/${FIS_CKPT_NAME}",
+  "snr_only":          "$(fis_dir "$TAG" "snr_only")/${FIS_CKPT_NAME}",
+  "full":              "$(fis_dir "$TAG" "full")/${FIS_CKPT_NAME}"
 }
 MAP_EOF
 
-    local CKPT_BASE="${BASE_DIR}/ckpts_${TAG}_baseline_${CHANNEL}${DIR_SUFFIX}/${BASELINE_CKPT_NAME}"
+    local CKPT_BASE="$(baseline_dir "$TAG")/${BASELINE_CKPT_NAME}"
 
     local CMD="python run_paper_sims.py \
   --baseline_ckpt ${CKPT_BASE} \
@@ -245,7 +299,8 @@ MAP_EOF
 
 if [ "$DIAG_ONLY" = false ] && [ "$SIMS_ONLY" = false ]; then
 
-    MODES=("linear" "importance_only" "snr_only" "full")
+    # MODES=("linear" "importance_only" "snr_only" "full")
+    MODES=("linear" "importance_only" "snr_only")  
     TOTAL=0
     DONE=0
     [ "$RUN_AWGN" = true ] && TOTAL=$((TOTAL + 5))
@@ -259,20 +314,20 @@ if [ "$DIAG_ONLY" = false ] && [ "$SIMS_ONLY" = false ]; then
 
     if [ "$RUN_AWGN" = true ]; then
         echo ""; echo "── 1️⃣  AWGN ──"
-        DONE=$((DONE + 1)); run_baseline "awgn" "AWGN" "" ""
-        for m in "${MODES[@]}"; do DONE=$((DONE + 1)); run_fis "$m" "awgn" "AWGN" "" ""; done
+       # DONE=$((DONE + 1)); run_baseline "awgn"
+        for m in "${MODES[@]}"; do DONE=$((DONE + 1)); run_fis "$m" "awgn"; done
     fi
 
     if [ "$RUN_NOEQ" = true ]; then
         echo ""; echo "── 2️⃣  RAYLEIGH NO-EQ ──"
-        DONE=$((DONE + 1)); run_baseline "noeq" "Rayleigh" "" ""
-        for m in "${MODES[@]}"; do DONE=$((DONE + 1)); run_fis "$m" "noeq" "Rayleigh" "" ""; done
+       # DONE=$((DONE + 1)); run_baseline "noeq"
+        for m in "${MODES[@]}"; do DONE=$((DONE + 1)); run_fis "$m" "noeq"; done
     fi
 
     if [ "$RUN_EQ" = true ]; then
         echo ""; echo "── 3️⃣  RAYLEIGH EQ ──"
-        DONE=$((DONE + 1)); run_baseline "eq" "Rayleigh" "_eq" "--rayleigh_equalize"
-        for m in "${MODES[@]}"; do DONE=$((DONE + 1)); run_fis "$m" "eq" "Rayleigh" "_eq" "--rayleigh_equalize"; done
+      #  DONE=$((DONE + 1)); run_baseline "eq"
+        for m in "${MODES[@]}"; do DONE=$((DONE + 1)); run_fis "$m" "eq"; done
     fi
 
     echo ""; echo "✅ TRAINING XONG"
@@ -289,9 +344,9 @@ if [ "$TRAIN_ONLY" = false ] && [ "$SIMS_ONLY" = false ]; then
     echo "  🔬 PART 2 — DIAGNOSE (SNR = ${SNR_DB} dB)"
     echo "████████████████████████████████████████████████████████████"
 
-    [ "$RUN_AWGN" = true ] && run_diag "awgn" "AWGN" "" "" "AWGN"
-    [ "$RUN_NOEQ" = true ] && run_diag "noeq" "Rayleigh" "" "" "Rayleigh"
-    [ "$RUN_EQ" = true ]    && run_diag "eq" "Rayleigh" "_eq" "--rayleigh_equalize" "Rayleigh"
+    [ "$RUN_AWGN" = true ] && run_diag "awgn"
+    [ "$RUN_NOEQ" = true ] && run_diag "noeq"
+    [ "$RUN_EQ" = true ]    && run_diag "eq"
 
     echo ""
     echo "✅ DIAGNOSE XONG"
@@ -311,9 +366,9 @@ if [ "$TRAIN_ONLY" = false ] && [ "$DIAG_ONLY" = false ]; then
     echo "  📊 PART 3 — PAPER SIMS (PSNR/SSIM)"
     echo "████████████████████████████████████████████████████████████"
 
-    [ "$RUN_AWGN" = true ] && run_paper_sims "awgn" "AWGN" "" "" "AWGN"
-    [ "$RUN_NOEQ" = true ] && run_paper_sims "noeq" "Rayleigh" "" "" "Rayleigh"
-    [ "$RUN_EQ" = true ]    && run_paper_sims "eq" "Rayleigh" "_eq" "--rayleigh_equalize" "Rayleigh"
+    [ "$RUN_AWGN" = true ] && run_paper_sims "awgn"
+    [ "$RUN_NOEQ" = true ] && run_paper_sims "noeq"
+    [ "$RUN_EQ" = true ]    && run_paper_sims "eq"
 
     echo ""
     echo "✅ PAPER SIMS XONG"
@@ -322,4 +377,4 @@ if [ "$TRAIN_ONLY" = false ] && [ "$DIAG_ONLY" = false ]; then
     [ "$RUN_EQ" = true ]    && echo "  📂 paper_sims_eq/"
 fi
 
-echo ""
+echo "" 
