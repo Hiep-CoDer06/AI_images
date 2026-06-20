@@ -98,6 +98,8 @@ class DeepJSCC_FIS(nn.Module):
         if self.use_channel_context:
             channel_ctx = self.channel.sample_context(
                 batch_size=z.shape[0],
+                H=z.shape[2],
+                W=z.shape[3],
                 device=z.device,
                 dtype=z.dtype,
             )

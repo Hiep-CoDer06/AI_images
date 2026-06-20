@@ -326,6 +326,22 @@ class FIS_SpatialPowerController(nn.Module):
         entropy = -(p * torch.log(p)).sum()
         return -entropy
 
+    @staticmethod
+    def _compute_control_metrics(A: torch.Tensor, I: torch.Tensor, eps: float = 1e-8) -> dict:
+        """Compute A_std, A_range, and I-A correlation for diagnostics."""
+        metrics = {}
+        metrics["A_std"] = A.std(unbiased=False)
+        metrics["A_range"] = A.max() - A.min()
+        if I is not None:
+            A_flat = A.reshape(A.shape[0], -1)
+            I_flat = I.reshape(I.shape[0], -1)
+            A_centered = A_flat - A_flat.mean(dim=1, keepdim=True)
+            I_centered = I_flat - I_flat.mean(dim=1, keepdim=True)
+            A_norm = A_centered / (A_centered.norm(dim=1, keepdim=True).clamp_min(eps))
+            I_norm = I_centered / (I_centered.norm(dim=1, keepdim=True).clamp_min(eps))
+            metrics["I_A_corr"] = (A_norm * I_norm).sum(dim=1).mean()
+        return metrics
+
     def forward(
         self,
         z: torch.Tensor,
@@ -369,6 +385,7 @@ class FIS_SpatialPowerController(nn.Module):
                 return A
             info["A_raw"] = score
             info["A"] = A
+            info.update(self._compute_control_metrics(A, I, eps=self.eps))
             if channel_rel is not None:
                 info["channel_rel"] = channel_rel
             return A, info
@@ -390,6 +407,7 @@ class FIS_SpatialPowerController(nn.Module):
                 "rule2_strength": rs2,
                 "rule2_balance_loss": self._rule_balance_loss(rs2, eps=self.eps),
             })
+            info.update(self._compute_control_metrics(A, I, eps=self.eps))
             if channel_rel_use is not None:
                 info["channel_rel"] = channel_rel_use
             return A, info

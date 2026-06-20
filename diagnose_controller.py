@@ -529,17 +529,25 @@ def main():
 
         # =========================================================================
         # 🔥 HOOK ĐÁNH GIÁ CORE TECH FIS (CHÈN VÀO ĐÂY) 🔥
-        # Chỉ chạy phân tích 3 thông số lõi khi model xuất ra Bản đồ Importance (I)
         # =========================================================================
         if tensors.get('I', None) is not None:
             I_np = tensors['I'][s].squeeze().detach().cpu().numpy()
             A_np = tensors['A'][s].squeeze().detach().cpu().numpy()
 
-            # Tạm thời giả lập W_np (9 luật), sau này thay bằng biến xuất ra thật từ model FIS.
-            num_rules = 9 
-            W_np = np.random.rand(I_np.shape[0], I_np.shape[1], num_rules) 
+            # Lấy rule activation thật từ info
+            rule_freqs = None
+            if 'rule2_strength' in info:
+                rs = info['rule2_strength'][s].detach().cpu().numpy()  # [H, W, num_rules]
+                rule_freqs = np.mean(rs, axis=(0, 1))  # [num_rules]
+            elif 'rule1_strength' in info:
+                rs = info['rule1_strength'][s].detach().cpu().numpy()
+                rule_freqs = np.mean(rs, axis=(0, 1))
+            
+            if rule_freqs is None:
+                num_rules = 6  # fallback
+                rule_freqs = np.ones(num_rules) / num_rules
 
-            sigma_A, Etop_20, H_rule, rule_freqs = calculate_tech_metrics(I_np, A_np, W_np, q=0.20)
+            sigma_A, Etop_20, H_rule, _ = calculate_tech_metrics(I_np, A_np, rule_freqs, q=0.20)
 
             # Lưu metrics ra log file
             log_path = os.path.join(args.save_dir, f'{mode}_metrics_log.txt')

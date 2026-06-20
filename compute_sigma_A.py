@@ -72,7 +72,7 @@ def main():
     x0, _ = testset[0]
     c = ratio2filtersize(x0, args.ratio)
 
-    # ---- Model ----
+    # ---- Model ---- (load first to get encoder dimensions)
     model = DeepJSCC_FIS(
         c=c, ratio=args.ratio,
         channel_type=args.channel, rician_k=4.0,
@@ -82,6 +82,11 @@ def main():
     if args.rayleigh_equalize:
         model.channel.enable_rayleigh_equalization(True)
 
+    # Get latent spatial dimensions from encoder
+    with torch.no_grad():
+        z_dummy = model.encoder(x0.unsqueeze(0).to(device))
+        model_H, model_W = z_dummy.shape[2], z_dummy.shape[3]
+
     # ---- Compute A_std per SNR ----
     snr_list = [float(s) for s in args.snr_list]
     results = {}
@@ -90,17 +95,15 @@ def main():
     print(f"Rayleigh EQ: {args.rayleigh_equalize}")
     print(f"Mode       : {args.mode}")
     print(f"SNR list   : {snr_list}")
+    print(f"Latent spatial size: H={model_H}, W={model_W}")
     print()
-
     for snr_db in snr_list:
         print(f"SNR = {snr_db:g} dB ...", end=" ", flush=True)
 
         ch = Channel(channel_type=args.channel, snr_db=snr_db, rician_k=4.0)
         ch.enable_rayleigh_equalization(args.rayleigh_equalize)
-        # For compute_sigma_A, we use a fixed spatial size since it's an offline script
-        H, W = 8, 8  # Typical latent spatial dimensions
         channel_ctx = ch.sample_context(
-            batch_size=args.batch_size, H=H, W=W, device=device, dtype=torch.float32,
+            batch_size=args.batch_size, H=model_H, W=model_W, device=device, dtype=torch.float32,
         )
 
         a_std = compute_A_std(
