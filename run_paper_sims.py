@@ -114,8 +114,13 @@ def eval_one(
         torch.manual_seed(seed_base + bidx)
         np.random.seed(seed_base + bidx)
 
+        # Get latent dimensions from encoder for frequency-selective fading
+        with torch.no_grad():
+            z_dummy = baseline_model.encoder(x[:1])
+            H, W = z_dummy.shape[2], z_dummy.shape[3]
+        
         # Sample one shared channel context / fading realization for this batch.
-        ctx = shared_channel.sample_context(batch_size=B, device=x.device, dtype=x.dtype)
+        ctx = shared_channel.sample_context(batch_size=B, H=H, W=W, device=x.device, dtype=x.dtype)
         pending = _clone_pending_fading(shared_channel._pending_fading)
         ctx_logs.append(_ctx_stats(ctx))
 

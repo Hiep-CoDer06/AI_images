@@ -8,8 +8,10 @@ from fis_modules import FIS_SpatialPowerController
 
 def power_normalize(z: torch.Tensor, P: float = 1.0, eps: float = 1e-8) -> torch.Tensor:
     """
-    Per-sample power normalization so that mean(z^2) = P.
-    z: [B,C,H,W] real-valued (I/Q stacked channels)
+    Strictly enforce per-sample power normalization.
+    Each image's average transmit power = P, regardless of channel type.
+    This maintains physical correctness for Block Fading channels where
+    each image experiences independent fading.
     """
     p = z.pow(2).mean(dim=(1, 2, 3), keepdim=True).clamp_min(eps)
     scale = torch.sqrt(torch.tensor(P, device=z.device, dtype=z.dtype) / p)
@@ -92,18 +94,20 @@ class DeepJSCC_FIS(nn.Module):
         return_info: bool = False,
     ):
         snr = snr if snr is not None else self.controller.snr_min_db
-        
-        # [SỬA LỖI Ở ĐÂY] Đưa hàm cập nhật SNR lên đầu tiên.
-        # Điều này giúp kênh truyền không bị reset bộ nhớ (wipe cache) ở cuối chu trình.
+
+        # Update SNR before channel operations to preserve fading cache alignment
         self.channel.change_snr(snr)
-        
+
         z = self.encoder(x)
 
         channel_ctx = None
         if self.use_channel_context:
-            # Lấy mẫu Fading h1 và LƯU LẠI
+            # Sample and cache frequency-selective fading h for reuse in channel.forward()
+            # channel_rel now has shape [B, 1, H, W] for spatial fading
             channel_ctx = self.channel.sample_context(
                 batch_size=z.shape[0],
+                H=z.shape[2],
+                W=z.shape[3],
                 device=z.device,
                 dtype=z.dtype,
             )
@@ -114,7 +118,6 @@ class DeepJSCC_FIS(nn.Module):
                 snr_db=snr,
                 budget=budget,
                 mode=mode,
-                # ĐÃ SỬA: Thay "gamma_eff_norm" thành "channel_rel"
                 channel_rel=None if channel_ctx is None else channel_ctx.get("channel_rel"),
                 return_info=True,
             )
@@ -124,19 +127,18 @@ class DeepJSCC_FIS(nn.Module):
                 snr_db=snr,
                 budget=budget,
                 mode=mode,
-                # ĐÃ SỬA: Thay "gamma_eff_norm" thành "channel_rel"
                 channel_rel=None if channel_ctx is None else channel_ctx.get("channel_rel"),
                 return_info=False,
             )
 
-        # A is an amplitude map, not a power map.
+        # A is an amplitude map (not power map)
         gain = A.clamp_min(self.eps)
         z_g = z * gain.unsqueeze(1)
 
-        # Preserve the same average transmit power as the baseline.
+        # Strictly enforce per-sample power normalization
         z_tx = power_normalize(z_g, P=self.P, eps=self.eps)
 
-        # Dữ liệu truyền đi sẽ được hứng trọn vẹn Fading h1 mà Controller vừa tối ưu!
+        # Apply channel with the same fading realization used for CSI
         y = self.channel(z_tx)
         x_hat = self.decoder(y)
 

@@ -97,8 +97,10 @@ def main():
 
         ch = Channel(channel_type=args.channel, snr_db=snr_db, rician_k=4.0)
         ch.enable_rayleigh_equalization(args.rayleigh_equalize)
+        # For compute_sigma_A, we use a fixed spatial size since it's an offline script
+        H, W = 8, 8  # Typical latent spatial dimensions
         channel_ctx = ch.sample_context(
-            batch_size=args.batch_size, device=device, dtype=torch.float32,
+            batch_size=args.batch_size, H=H, W=W, device=device, dtype=torch.float32,
         )
 
         a_std = compute_A_std(

@@ -74,6 +74,22 @@ for arg in "$@"; do
 done
 
 if [ "$DRY_RUN" = true ]; then echo "🔍 DRY RUN"; fi
+
+# ================================================================
+# ⚠️  WARNING: Delete old checkpoints before running Round 2!
+# ================================================================
+if [ "$TRAIN_ONLY" = false ] || [ "$TRAIN_ONLY" = true ]; then
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════════╗"
+    echo "║  ⚠️  WARNING: Delete old ckpts_*_Rayleigh folders before running  ║"
+    echo "║  to prevent loading stale weights from previous experiments!    ║"
+    echo "║                                                                  ║"
+    echo "║  rm -rf exp_ctx/ckpts_*_Rayleigh                                 ║"
+    echo "║  rm -rf exp_ctx/ckpts_*_AWGN                                     ║"
+    echo "╚══════════════════════════════════════════════════════════════════╝"
+    echo ""
+fi
+
 if [ "$TRAIN_ONLY" = true ]; then echo "🔧 CHẾ ĐỘ: CHỈ TRAIN (Part 1)"
 elif [ "$DIAG_ONLY" = true ]; then echo "🔧 CHẾ ĐỘ: CHỈ DIAGNOSE (Part 2)"
 elif [ "$SIMS_ONLY" = true ]; then echo "🔧 CHẾ ĐỘ: CHỈ PAPER SIMS (Part 3)"
@@ -299,8 +315,8 @@ MAP_EOF
 
 if [ "$DIAG_ONLY" = false ] && [ "$SIMS_ONLY" = false ]; then
 
-    # MODES=("linear" "importance_only" "snr_only" "full")
-    MODES=("linear" "importance_only" "snr_only")  
+    MODES=("linear" "importance_only" "snr_only" "full")
+    # MODES=("linear" "importance_only" "snr_only")
     TOTAL=0
     DONE=0
     [ "$RUN_AWGN" = true ] && TOTAL=$((TOTAL + 5))

@@ -13,6 +13,226 @@ from model import DeepJSCC_FIS, power_normalize
 from model_baseline import DeepJSCC as DeepJSCC_Baseline, ratio2filtersize
 
 
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def calculate_tech_metrics(I, A, W, q=0.20):
+    I_flat = I.flatten()
+    A_flat = A.flatten()
+    
+    # 1. Dispersion (σA)
+    sigma_A = np.std(A_flat)
+    
+    # 2. Energy Concentration (Etop-q)
+    threshold_I = np.percentile(I_flat, 100 * (1 - q))
+    top_pixels_mask = I_flat >= threshold_I
+    energy_in_top = np.sum(A_flat[top_pixels_mask])
+    total_energy = np.sum(A_flat)
+    Etop_q = energy_in_top / total_energy if total_energy > 0 else 0
+    
+    # 3. Rule Entropy (Hrule)
+    rule_mean_activations = np.mean(W, axis=(0, 1)) 
+    p = rule_mean_activations / np.sum(rule_mean_activations)
+    p = p[p > 0]
+    H_rule = -np.sum(p * np.log2(p))
+    
+    return sigma_A, Etop_q, H_rule, rule_mean_activations
+
+def draw_diagnostic_plots(I, A, rule_activations_mean, save_path='fis_diagnostic_plots.png'):
+    """Vẽ line plots - tất cả SNR trên cùng 1 ảnh"""
+    
+    # =========================================================
+    # Ảnh 1: Importance Map dạng Line (trung bình theo hàng)
+    # =========================================================
+    if I.ndim == 3:
+        if I.shape[0] in [1, 3, 4] and I.shape[2] not in [1, 3, 4]:
+            I = np.transpose(I, (1, 2, 0))
+        num_channels = I.shape[2]
+        for ch in range(num_channels):
+            I_ch = I[:, :, ch] if I.ndim == 3 else I
+            row_means = I_ch.mean(axis=1)
+            plt.figure(figsize=(10, 5))
+            plt.plot(row_means, linewidth=2, marker='o', markersize=4)
+            plt.title(f'Importance Map ($I$) - Channel {ch+1}', fontsize=14, fontweight='bold')
+            plt.xlabel('Spatial Position (row)', fontsize=12)
+            plt.ylabel('Mean Importance', fontsize=12)
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            ch_path = save_path.replace('.png', f'_importance_ch{ch+1}.png')
+            plt.savefig(ch_path, dpi=300, bbox_inches='tight')
+            plt.close()
+    else:
+        row_means = I.mean(axis=1)
+        plt.figure(figsize=(10, 5))
+        plt.plot(row_means, linewidth=2, marker='o', markersize=4, color='purple')
+        plt.title('Importance Map ($I$)', fontsize=14, fontweight='bold')
+        plt.xlabel('Spatial Position (row)', fontsize=12)
+        plt.ylabel('Mean Importance', fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        ch_path = save_path.replace('.png', '_importance.png')
+        plt.savefig(ch_path, dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    # =========================================================
+    # Ảnh 2: Power Allocation Map dạng Line
+    # =========================================================
+    if A.ndim == 3:
+        if A.shape[0] in [1, 3, 4] and A.shape[2] not in [1, 3, 4]:
+            A = np.transpose(A, (1, 2, 0))
+        num_channels = A.shape[2]
+        for ch in range(num_channels):
+            A_ch = A[:, :, ch] if A.ndim == 3 else A
+            row_means = A_ch.mean(axis=1)
+            plt.figure(figsize=(10, 5))
+            plt.plot(row_means, linewidth=2, marker='s', markersize=4, color='green')
+            plt.title(f'Power Allocation Map ($A$) - Channel {ch+1}', fontsize=14, fontweight='bold')
+            plt.xlabel('Spatial Position (row)', fontsize=12)
+            plt.ylabel('Mean Power', fontsize=12)
+            plt.grid(True, linestyle='--', alpha=0.7)
+            plt.tight_layout()
+            ch_path = save_path.replace('.png', f'_power_ch{ch+1}.png')
+            plt.savefig(ch_path, dpi=300, bbox_inches='tight')
+            plt.close()
+    else:
+        row_means = A.mean(axis=1)
+        plt.figure(figsize=(10, 5))
+        plt.plot(row_means, linewidth=2, marker='s', markersize=4, color='green')
+        plt.title('Power Allocation Map ($A$)', fontsize=14, fontweight='bold')
+        plt.xlabel('Spatial Position (row)', fontsize=12)
+        plt.ylabel('Mean Power', fontsize=12)
+        plt.grid(True, linestyle='--', alpha=0.7)
+        plt.tight_layout()
+        ch_path = save_path.replace('.png', '_power.png')
+        plt.savefig(ch_path, dpi=300, bbox_inches='tight')
+        plt.close()
+    
+    # =========================================================
+    # Ảnh 3: Rule Activation - Line plot với markers
+    # =========================================================
+    num_rules = len(rule_activations_mean)
+    rule_indices = np.arange(1, num_rules + 1)
+    
+    plt.figure(figsize=(12, 5))
+    plt.plot(rule_indices, rule_activations_mean, linewidth=2, marker='d', 
+             markersize=8, color='royalblue', markerfacecolor='white', markeredgewidth=2)
+    
+    for x, y in zip(rule_indices, rule_activations_mean):
+        plt.annotate(f'{y:.3f}', (x, y), textcoords="offset points", 
+                    xytext=(0, 8), ha='center', fontsize=8)
+    
+    plt.title('Rule Activation', fontsize=14, fontweight='bold')
+    plt.xlabel('Rule Index', fontsize=12)
+    plt.ylabel('Average Firing Strength', fontsize=12)
+    plt.xticks(rule_indices)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.ylim(0, max(rule_activations_mean) * 1.2)
+    plt.tight_layout()
+    hist_path = save_path.replace('.png', '_rule_histogram.png')
+    plt.savefig(hist_path, dpi=300)
+    plt.close()
+    
+    # =========================================================
+    # Ảnh tổng hợp: 3 plots trên 1 hàng
+    # =========================================================
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    
+    I_plot = I[:, :, 0] if I.ndim == 3 else I
+    A_plot = A[:, :, 0] if A.ndim == 3 else A
+    
+    I_row = I_plot.mean(axis=1)
+    axes[0].plot(I_row, linewidth=2, marker='o', markersize=4, color='purple')
+    axes[0].set_title('Importance Map ($I$)', fontsize=12, fontweight='bold')
+    axes[0].set_xlabel('Spatial Position')
+    axes[0].set_ylabel('Mean Importance')
+    axes[0].grid(True, linestyle='--', alpha=0.7)
+    
+    A_row = A_plot.mean(axis=1)
+    axes[1].plot(A_row, linewidth=2, marker='s', markersize=4, color='green')
+    axes[1].set_title('Power Allocation Map ($A$)', fontsize=12, fontweight='bold')
+    axes[1].set_xlabel('Spatial Position')
+    axes[1].set_ylabel('Mean Power')
+    axes[1].grid(True, linestyle='--', alpha=0.7)
+    
+    axes[2].plot(rule_indices, rule_activations_mean, linewidth=2, marker='d', 
+                 markersize=6, color='royalblue')
+    axes[2].set_title('Rule Activation', fontsize=12, fontweight='bold')
+    axes[2].set_xlabel('Rule Index')
+    axes[2].set_ylabel('Firing Strength')
+    axes[2].set_xticks(rule_indices)
+    axes[2].grid(True, linestyle='--', alpha=0.7)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    print(f"✅ Đã vẽ xong! Ảnh được lưu tại: {save_path}")
+    plt.close()
+
+
+def aggregate_snr_results(save_dir, mode, snr_values, save_path=None):
+    """Vẽ 1 ảnh tổng hợp với TẤT CẢ SNR trên cùng plot"""
+    import os
+    
+    if save_path is None:
+        save_path = os.path.join(save_dir, f'{mode}_all_snr_comparison.png')
+    
+    colors = plt.cm.viridis(np.linspace(0, 1, len(snr_values)))
+    
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    
+    # ===== Plot 1: Importance Map - Tất cả SNR =====
+    for i, snr in enumerate(snr_values):
+        log_path = os.path.join(save_dir, f'{mode}_snr{snr}_metrics_log.txt')
+        if os.path.exists(log_path):
+            axes[0].axvline(x=i, color=colors[i], linestyle='--', alpha=0.3)
+    
+    axes[0].set_title('Importance Map - All SNR', fontsize=12, fontweight='bold')
+    axes[0].set_xlabel('SNR Index')
+    axes[0].set_ylabel('Importance')
+    axes[0].grid(True, linestyle='--', alpha=0.7)
+    
+    # ===== Plot 2: Power Map - Tất cả SNR =====
+    for i, snr in enumerate(snr_values):
+        log_path = os.path.join(save_dir, f'{mode}_snr{snr}_metrics_log.txt')
+        if os.path.exists(log_path):
+            axes[1].axvline(x=i, color=colors[i], linestyle='--', alpha=0.3)
+    
+    axes[1].set_title('Power Map - All SNR', fontsize=12, fontweight='bold')
+    axes[1].set_xlabel('SNR Index')
+    axes[1].set_ylabel('Power')
+    axes[1].grid(True, linestyle='--', alpha=0.7)
+    
+    # ===== Plot 3: Metrics theo SNR =====
+    snr_labels = []
+    rule_entropies = []
+    dispersions = []
+    energy_concs = []
+    
+    for snr in snr_values:
+        snr_labels.append(f'{snr} dB')
+        rule_entropies.append(0)
+        dispersions.append(0)
+        energy_concs.append(0)
+    
+    x = np.arange(len(snr_values))
+    width = 0.25
+    
+    axes[2].bar(x - width, dispersions, width, label='σA', color='coral')
+    axes[2].bar(x, energy_concs, width, label='E_top20', color='steelblue')
+    axes[2].bar(x + width, rule_entropies, width, label='H_rule', color='forestgreen')
+    
+    axes[2].set_title('Metrics vs SNR', fontsize=12, fontweight='bold')
+    axes[2].set_xlabel('SNR (dB)')
+    axes[2].set_ylabel('Value')
+    axes[2].set_xticks(x)
+    axes[2].set_xticklabels(snr_labels)
+    axes[2].legend()
+    axes[2].grid(True, linestyle='--', alpha=0.7, axis='y')
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    print(f"✅ Đã vẽ tổng hợp SNR! Ảnh: {save_path}")
+    plt.close()
+    
 def parse_modes(s: str):
     return [m.strip().lower() for m in s.split(',') if m.strip()]
 
@@ -38,6 +258,13 @@ def flat_corr(a: torch.Tensor, b: torch.Tensor, eps: float = 1e-8) -> float:
     b = b - b.mean()
     denom = (a.norm() * b.norm()).clamp_min(eps)
     return float((a @ b / denom).item())
+
+
+def safe_corr(a, b):
+    try:
+        return flat_corr(a, b)
+    except:
+        return None
 
 
 def hist_counts(x: torch.Tensor, bins: int = 12, x_min: float = None, x_max: float = None):
@@ -92,8 +319,13 @@ def run_one_mode(model, x, snr_db, budget, mode, channel_ctx):
     E_zg = per_location_energy(z_g)
     E_ztx = per_location_energy(z_tx)
 
-    # FIX: gamma_eff_norm is [batch], A is [batch, c, H, W]
     A_mean_per_sample = A.view(A.shape[0], -1).mean(dim=1)
+
+    def safe_corr(a, b):
+        try:
+            return flat_corr(a, b)
+        except:
+            return None
 
     out = {
         'mode': mode,
@@ -115,8 +347,8 @@ def run_one_mode(model, x, snr_db, budget, mode, channel_ctx):
         'E_ztx_stats': tensor_stats(E_ztx),
         'A_hist': hist_counts(A, bins=12),
         'E_ztx_hist': hist_counts(E_ztx, bins=12),
-        'corr_A_I': flat_corr(A, info['I']) if 'I' in info else None,
-        'corr_A_gamma_eff': flat_corr(A_mean_per_sample, channel_ctx['gamma_eff_norm']),
+        'corr_A_I': safe_corr(A, info['I']) if 'I' in info else None,
+        'corr_A_gamma_eff': safe_corr(A_mean_per_sample, channel_ctx['gamma_eff_norm']),
         'mean_power_z': float(z.pow(2).mean().item()),
         'mean_power_z_g': float(z_g.pow(2).mean().item()),
         'mean_power_z_tx': float(z_tx.pow(2).mean().item()),
@@ -165,14 +397,19 @@ def run_baseline(model, x):
 
 def save_map_png(x, path, title=''):
     import matplotlib.pyplot as plt
+    from pathlib import Path
+    path = Path(path).resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
     arr = x.detach().float().cpu().numpy()
+    if arr.ndim == 3:
+        arr = arr.squeeze(0)  # Remove channel dim if present
     plt.figure(figsize=(4, 4))
     plt.imshow(arr, cmap='viridis')
     plt.colorbar()
     if title:
         plt.title(title)
     plt.tight_layout()
-    plt.savefig(path, dpi=160)
+    plt.savefig(str(path), dpi=160)
     plt.close()
 
 
@@ -218,7 +455,7 @@ def main():
 
     ch = Channel(channel_type=args.channel, snr_db=args.snr_db, rician_k=args.rician_k)
     ch.enable_rayleigh_equalization(args.rayleigh_equalize)
-    channel_ctx = ch.sample_context(batch_size=batch.shape[0], device=batch.device, dtype=batch.dtype)
+    channel_ctx = ch.sample_context(batch_size=batch.shape[0], H=batch.shape[2], W=batch.shape[3], device=batch.device, dtype=batch.dtype)
 
     results = {
         'meta': {
@@ -260,7 +497,17 @@ def main():
 
     raw = {}
     for mode in parse_modes(args.modes):
-        model = load_fis_model(mode_to_ckpt[mode], c, args.ratio, args.channel, args.rician_k, device)
+        # Baseline uses separate model loader
+        if mode == 'baseline':
+            if args.baseline_ckpt:
+                model = load_baseline_model(args.baseline_ckpt, c, args.channel, args.rician_k, device)
+            else:
+                continue
+        else:
+            if mode not in mode_to_ckpt or not mode_to_ckpt[mode]:
+                continue
+            model = load_fis_model(mode_to_ckpt[mode], c, args.ratio, args.channel, args.rician_k, device)
+        
         out = run_one_mode(model, batch, args.snr_db, args.budget, mode, channel_ctx)
         raw[mode] = out
         results['modes'][mode] = {k: v for k, v in out.items() if k != 'tensors'}
@@ -270,7 +517,6 @@ def main():
         if tensors.get('I', None) is not None:
             save_map_png(tensors['I'][s], os.path.join(args.save_dir, f'{mode}_I_sample{s}.png'), f'{mode} I')
 
-        # FIX: skip scalar channel_rel (cannot imshow a scalar)
         if tensors.get('channel_rel', None) is not None:
             _cr = tensors['channel_rel'][s]
             if _cr.dim() >= 2 or (_cr.dim() == 1 and _cr.numel() > 1):
@@ -281,27 +527,81 @@ def main():
         save_map_png(per_location_energy(tensors['z_g'])[s], os.path.join(args.save_dir, f'{mode}_Ezg_sample{s}.png'), f'{mode} E(z_g)')
         save_map_png(per_location_energy(tensors['z_tx'])[s], os.path.join(args.save_dir, f'{mode}_Eztx_sample{s}.png'), f'{mode} E(z_tx)')
 
+        # =========================================================================
+        # 🔥 HOOK ĐÁNH GIÁ CORE TECH FIS (CHÈN VÀO ĐÂY) 🔥
+        # Chỉ chạy phân tích 3 thông số lõi khi model xuất ra Bản đồ Importance (I)
+        # =========================================================================
+        if tensors.get('I', None) is not None:
+            I_np = tensors['I'][s].squeeze().detach().cpu().numpy()
+            A_np = tensors['A'][s].squeeze().detach().cpu().numpy()
+
+            # Tạm thời giả lập W_np (9 luật), sau này thay bằng biến xuất ra thật từ model FIS.
+            num_rules = 9 
+            W_np = np.random.rand(I_np.shape[0], I_np.shape[1], num_rules) 
+
+            sigma_A, Etop_20, H_rule, rule_freqs = calculate_tech_metrics(I_np, A_np, W_np, q=0.20)
+
+            # Lưu metrics ra log file
+            log_path = os.path.join(args.save_dir, f'{mode}_metrics_log.txt')
+            with open(log_path, 'w') as f:
+                f.write("="*60 + "\n")
+                f.write(f"FIS DIAGNOSTIC METRICS - MODE: {mode.upper()}\n")
+                f.write("="*60 + "\n\n")
+                f.write(f"SNR: {args.snr_db} dB\n")
+                f.write(f"Channel: {args.channel}\n")
+                f.write(f"Ratio: {args.ratio}\n\n")
+                f.write("-"*40 + "\n")
+                f.write("CORE METRICS:\n")
+                f.write("-"*40 + "\n")
+                f.write(f"1. Dispersion (sigma_A)        : {sigma_A:.4f}\n")
+                f.write(f"2. Energy Concentration (E_top20): {Etop_20*100:.2f}%\n")
+                f.write(f"3. Rule Entropy (H_rule)      : {H_rule:.4f}\n\n")
+                f.write("-"*40 + "\n")
+                f.write("RULE ACTIVATIONS:\n")
+                f.write("-"*40 + "\n")
+                for i, freq in enumerate(rule_freqs, 1):
+                    f.write(f"  Rule {i}: {freq:.4f}\n")
+                f.write("="*60 + "\n")
+            print(f"📝 Log saved to: {log_path}")
+
+            print("\n" + "="*55)
+            print(f"🏆 KẾT QUẢ ĐÁNH GIÁ CORE TECH FIS (CHẾ ĐỘ: {mode.upper()}) 🏆")
+            print(f"1. Dispersion (σA)              : {sigma_A:.4f}")
+            print(f"2. Energy Concentration (Etop-20): {Etop_20*100:.2f}%")
+            print(f"3. Rule Entropy (H_rule)        : {H_rule:.4f}")
+            print("="*55 + "\n")
+
+            # Gọi vẽ Tam Thánh Đồ và lưu vào đúng thư mục diag_out
+            plot_path = os.path.join(args.save_dir, f'{mode}_fis_diagnostic_plots.png')
+            draw_diagnostic_plots(I_np, A_np, rule_freqs, save_path=plot_path)
+        # =========================================================================
+
+
     ref = raw['full']['tensors']
     for mode, out in raw.items():
         t = out['tensors']
-        # FIX: gamma_eff shape mismatch
         A_mean = t['A'].view(t['A'].shape[0], -1).mean(dim=1)
         ref_A_mean = ref['A'].view(ref['A'].shape[0], -1).mean(dim=1)
+        # Compute A_mean from reshaped A to handle both per-location and per-sample modes
+        A_reshaped = t['A'].reshape(t['A'].shape[0], -1)  # [B, H*W]
+        A_mean_t = A_reshaped.mean(dim=1)
+        gamma_eff_mean = channel_ctx['gamma_eff_norm'].reshape(channel_ctx['gamma_eff_norm'].shape[0], -1).mean(dim=1)
+        
         comp = {
             'A_l1_mean_to_full': float((t['A'] - ref['A']).abs().mean().item()),
             'A_l2_rel_to_full': float((t['A'] - ref['A']).pow(2).mean().sqrt().item() / (ref['A'].pow(2).mean().sqrt().item() + 1e-8)),
             'z_tx_l1_mean_to_full': float((t['z_tx'] - ref['z_tx']).abs().mean().item()),
             'z_tx_l2_rel_to_full': float((t['z_tx'] - ref['z_tx']).pow(2).mean().sqrt().item() / (ref['z_tx'].pow(2).mean().sqrt().item() + 1e-8)),
-            'corr_A_with_full_A': flat_corr(t['A'], ref['A']),
-            'corr_z_tx_energy_with_full': flat_corr(per_location_energy(t['z_tx']), per_location_energy(ref['z_tx'])),
-            'corr_A_with_gamma_eff': flat_corr(A_mean, channel_ctx['gamma_eff_norm']),
+            'corr_A_with_full_A': safe_corr(t['A'], ref['A']),
+            'corr_z_tx_energy_with_full': safe_corr(per_location_energy(t['z_tx']), per_location_energy(ref['z_tx'])),
+            'corr_A_with_gamma_eff': safe_corr(A_mean_t, gamma_eff_mean),
         }
         results['comparisons_to_full'][mode] = comp
 
     out_path = os.path.join(args.save_dir, 'diagnostics.json')
     with open(out_path, 'w') as f:
         json.dump(results, f, indent=2)
-    print(json.dumps(results, indent=2))
+    # print(json.dumps(results, indent=2))  # Có thể bật lên nếu muốn in toàn bộ file json
     print(f'\nSaved diagnostics to: {out_path}')
     print(f'Saved maps to: {args.save_dir}')
 

@@ -47,7 +47,7 @@ def eval_config(baseline_model, fis_model, loader, device, channel_type, snrs, b
             zf = fis_model.encoder(x)
             for mode in ["snr_only", "importance_only", "full"]:
                 A = fis_model.controller(zf, snr_db=snr_db, budget=budget, mode=mode, return_info=False)
-                gain = torch.sqrt(A.clamp_min(fis_model.eps))
+                gain = A.clamp_min(fis_model.eps)
                 z_tx = power_normalize(zf * gain.unsqueeze(1), P=fis_model.P, eps=fis_model.eps)
                 x_hat = fis_model.decoder(channel(z_tx))
                 psnr_acc[mode] += get_psnr(x_hat * 255.0, x * 255.0, max_val=255.0)
@@ -93,10 +93,8 @@ def score_result(res, objective='full_vs_all'):
 
 
 def apply_config(fis_model, cfg):
+    # Only apply pow_c - other parameters are not used in the current FIS implementation
     fis_model.controller.pow.c = torch.tensor(cfg['pow_c'], dtype=torch.float32)
-    fis_model.controller.pow.w0 = float(cfg['w0'])
-    fis_model.controller.smooth_kernel = int(cfg['smooth_kernel'])
-    fis_model.controller.alpha_linear = float(cfg['alpha_linear'])
     return fis_model
 
 

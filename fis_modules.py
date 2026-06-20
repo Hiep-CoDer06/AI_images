@@ -149,6 +149,14 @@ class FIS_PowerAllocation(nn.Module):
     - SNR controls how strong redistribution should be globally.
     - channel_rel tells the controller how reliable the current channel block is.
     - I tells the controller which spatial locations deserve protection.
+
+    Rule consequents (balanced, physically constrained):
+      0: high-I & low-reliability   -> +0.95 (boost important regions in bad channel)
+      1: high-I & medium-reliability -> +0.60 (moderate boost)
+      2: high-I & high-reliability  -> +0.18 (slight boost, channel helps)
+      3: medium-I & low-reliability -> +0.35 (moderate boost for medium importance)
+      4: medium-I & med/high rel    -> +0.02 (near uniform)
+      5: low-I (any reliability)    -> -0.35 (deprioritize low importance)
     """
 
     def __init__(
@@ -178,15 +186,7 @@ class FIS_PowerAllocation(nn.Module):
         self.score_scale = float(score_scale)
         self.eps = eps
 
-        # Consequents for the 6 channel-aware rules below.
-        # Positive -> allocate more, negative -> allocate less.
-        # Rule order:
-        # 0: high-I & low-reliability
-        # 1: high-I & medium-reliability
-        # 2: high-I & high-reliability
-        # 3: medium-I & low-reliability
-        # 4: medium-I & medium/high reliability
-        # 5: low-I (all reliability levels merged)
+        # Balanced consequents: protect important regions while respecting physics
         self.c = torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35], dtype=torch.float32)
 
     def _snr_unit(self, snr_db: float, device, dtype) -> torch.Tensor:
@@ -205,8 +205,11 @@ class FIS_PowerAllocation(nn.Module):
 
     def _prepare_channel_rel(self, channel_rel: torch.Tensor | None, I: torch.Tensor, snr_db: float) -> torch.Tensor:
         """
-        Convert channel_rel to a [B,H,W] tensor in [0,1].
-        If not provided, fall back to nominal-SNR-based reliability.
+        Convert channel_rel to a tensor in [0,1] matching I's spatial dimensions [B, H, W].
+        Supports shapes: [B], [B, 1], [B, H, W], or [B, 1, H, W].
+        
+        For frequency-selective fading, channel_rel has shape [B, 1, H, W] and is
+        squeezed to [B, H, W] for compatibility with I's shape.
         """
         if channel_rel is None:
             s = self._snr_unit(snr_db, device=I.device, dtype=I.dtype)
@@ -217,19 +220,15 @@ class FIS_PowerAllocation(nn.Module):
             C = torch.tensor(channel_rel, device=I.device, dtype=I.dtype)
         C = C.to(device=I.device, dtype=I.dtype)
 
-        if C.dim() == 1:
-            C = C.view(-1, 1, 1).expand_as(I)
-        elif C.dim() == 2:
-            C = C.unsqueeze(-1).expand_as(I)
-        elif C.dim() == 3:
-            if C.shape[1:] != I.shape[1:]:
-                C = C[:, :1, :1].expand_as(I)
-        elif C.dim() == 4:
+        # Handle spatial channel_rel [B, 1, H, W] from frequency-selective fading
+        if C.dim() == 4 and C.shape[1] == 1:
+            # Squeeze to [B, H, W] to match I's shape
             C = C.squeeze(1)
-            if C.shape[1:] != I.shape[1:]:
-                C = C[:, :1, :1].expand_as(I)
-        else:
-            raise ValueError(f"Unsupported channel_rel shape: {tuple(C.shape)}")
+        
+        # Now C should be [B, H, W] to match I
+        if C.shape != I.shape:
+            C = C[:, :1, :1].expand_as(I)
+        
         return _clamp01(C)
 
     def forward(
@@ -246,7 +245,7 @@ class FIS_PowerAllocation(nn.Module):
         iL, iM, iH = _mf_low(I), _mf_med(I), _mf_high(I)
         cL, cM, cH = _mf_low(C), _mf_med(C), _mf_high(C)
 
-        # 6 channel-aware rules.
+        # 6 channel-aware rules
         r0 = _fuzzy_and(iH, cL)
         r1 = _fuzzy_and(iH, cM)
         r2 = _fuzzy_and(iH, cH)

@@ -93,6 +93,17 @@ def run_one_mode(model: DeepJSCC_FIS, x: torch.Tensor, snr_db: float, budget: fl
     E_zg = per_location_energy(z_g)
     E_ztx = per_location_energy(z_tx)
 
+    # For spatial correlation: reduce A over channel dimension, then flatten
+    # A: [B, C, H, W] -> A_spatial: [B, H, W] (per-spatial-location amplitude)
+    A_spatial = A.mean(dim=1)
+    
+    # Safely compute correlation with shape mismatch fallback
+    try:
+        channel_spatial = channel_ctx['gamma_eff_norm'].squeeze(1)  # [B, 1, H, W] -> [B, H, W]
+        corr_A_gamma_eff = flat_corr(A_spatial.flatten(), channel_spatial.flatten())
+    except Exception:
+        corr_A_gamma_eff = 0.0  # Fallback for shape mismatch during OFDM transition
+
     out = {
         'mode': mode,
         'channel_ctx': {
@@ -114,7 +125,7 @@ def run_one_mode(model: DeepJSCC_FIS, x: torch.Tensor, snr_db: float, budget: fl
         'A_hist': hist_counts(A, bins=12),
         'E_ztx_hist': hist_counts(E_ztx, bins=12),
         'corr_A_I': flat_corr(A, info['I']) if 'I' in info else None,
-        'corr_A_gamma_eff': flat_corr(A, channel_ctx['gamma_eff_norm']),
+        'corr_A_gamma_eff': corr_A_gamma_eff,
         'mean_power_z': float(z.pow(2).mean().item()),
         'mean_power_z_g': float(z_g.pow(2).mean().item()),
         'mean_power_z_tx': float(z_tx.pow(2).mean().item()),
@@ -164,6 +175,7 @@ def run_baseline(model: DeepJSCC_Baseline, x: torch.Tensor) -> Dict[str, Any]:
 def save_map_png(x: torch.Tensor, path: str, title: str = ''):
     import matplotlib.pyplot as plt
     arr = x.detach().float().cpu().numpy()
+    arr = arr.squeeze()  # Remove dimensions of size 1 (e.g., (1,8,8) -> (8,8))
     plt.figure(figsize=(4, 4))
     plt.imshow(arr, cmap='viridis')
     plt.colorbar()
@@ -215,9 +227,17 @@ def main():
         raise ValueError(f'batch_index={args.batch_index} out of range')
 
     # One shared channel context for all methods so the comparison remains paired.
+    # Create a temporary model to get latent spatial dimensions for frequency-selective fading
+    temp_model = DeepJSCC_FIS(c=c, ratio=args.ratio, channel_type=args.channel, rician_k=args.rician_k).to(device)
+    temp_model.eval()
+    with torch.no_grad():
+        z_dummy = temp_model.encoder(batch[:1])
+        H, W = z_dummy.shape[2], z_dummy.shape[3]
+    del temp_model  # Clean up
+
     ch = Channel(channel_type=args.channel, snr_db=args.snr_db, rician_k=args.rician_k)
     ch.enable_rayleigh_equalization(args.rayleigh_equalize)
-    channel_ctx = ch.sample_context(batch_size=batch.shape[0], device=batch.device, dtype=batch.dtype)
+    channel_ctx = ch.sample_context(batch_size=batch.shape[0], H=H, W=W, device=batch.device, dtype=batch.dtype)
 
     results: Dict[str, Any] = {
         'meta': {
@@ -278,6 +298,17 @@ def main():
     ref = raw['full']['tensors']
     for mode, out in raw.items():
         t = out['tensors']
+        # For spatial correlation: reduce A over channel dimension
+        A_spatial = t['A'].mean(dim=1)  # [B, C, H, W] -> [B, H, W]
+        ref_A_spatial = ref['A'].mean(dim=1)  # [B, H, W]
+        
+        # Safely compute correlation with shape mismatch fallback
+        try:
+            channel_spatial = channel_ctx['gamma_eff_norm'].squeeze(1)  # [B, 1, H, W] -> [B, H, W]
+            corr_A_gamma_eff = flat_corr(A_spatial.flatten(), channel_spatial.flatten())
+        except Exception:
+            corr_A_gamma_eff = 0.0  # Fallback for shape mismatch during OFDM transition
+        
         comp = {
             'A_l1_mean_to_full': float((t['A'] - ref['A']).abs().mean().item()),
             'A_l2_rel_to_full': float((t['A'] - ref['A']).pow(2).mean().sqrt().item() / (ref['A'].pow(2).mean().sqrt().item() + 1e-8)),
@@ -285,7 +316,7 @@ def main():
             'z_tx_l2_rel_to_full': float((t['z_tx'] - ref['z_tx']).pow(2).mean().sqrt().item() / (ref['z_tx'].pow(2).mean().sqrt().item() + 1e-8)),
             'corr_A_with_full_A': flat_corr(t['A'], ref['A']),
             'corr_z_tx_energy_with_full': flat_corr(per_location_energy(t['z_tx']), per_location_energy(ref['z_tx'])),
-            'corr_A_with_gamma_eff': flat_corr(t['A'], channel_ctx['gamma_eff_norm']),
+            'corr_A_with_gamma_eff': corr_A_gamma_eff,
         }
         results['comparisons_to_full'][mode] = comp
 

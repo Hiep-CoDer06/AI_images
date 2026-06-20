@@ -42,8 +42,8 @@ class Channel(nn.Module):
         snr_db: float = 13.0,
         eps: float = 1e-8,
         rician_k: float = 4.0,
-        context_db_min: float = -15.0,
-        context_db_max: float = 20.0,
+        context_db_min: float = -60.0,
+        context_db_max: float = 25.0,
     ):
         super().__init__()
         self.channel_type = str(channel_type).lower()
