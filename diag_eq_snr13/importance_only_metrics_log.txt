@@ -1,28 +1,4 @@
-============================================================
-FIS DIAGNOSTIC METRICS - MODE: IMPORTANCE_ONLY
-============================================================
-
-SNR: 13.0 dB
-Channel: Rayleigh
-Ratio: 0.1667
-
-----------------------------------------
-CORE METRICS:
-----------------------------------------
-1. Dispersion (sigma_A)        : 0.0654
-2. Energy Concentration (E_top20): 22.41%
-3. Rule Entropy (H_rule)      : 3.1672
-
-----------------------------------------
-RULE ACTIVATIONS:
-----------------------------------------
-  Rule 1: 0.5395
-  Rule 2: 0.5110
-  Rule 3: 0.5101
-  Rule 4: 0.4908
-  Rule 5: 0.4613
-  Rule 6: 0.5480
-  Rule 7: 0.5420
-  Rule 8: 0.5500
-  Rule 9: 0.5684
-============================================================
+FIS METRICS - MODE: IMPORTANCE_ONLY (SNR: 13.0 dB)
+1. Dispersion (sigma_A): 0.0761
+2. Energy (E_top20): 22.74%
+3. Rule Entropy (H_rule): 3.0000

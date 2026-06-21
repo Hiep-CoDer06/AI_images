@@ -1,0 +1,4 @@
+FIS METRICS - MODE: IMPORTANCE_ONLY (SNR: 4.0 dB)
+1. Dispersion (sigma_A): 0.0761
+2. Energy (E_top20): 22.79%
+3. Rule Entropy (H_rule): 3.0000

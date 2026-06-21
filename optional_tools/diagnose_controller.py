@@ -126,6 +126,7 @@ def run_one_mode(model: DeepJSCC_FIS, x: torch.Tensor, snr_db: float, budget: fl
         'E_ztx_hist': hist_counts(E_ztx, bins=12),
         'corr_A_I': flat_corr(A, info['I']) if 'I' in info else None,
         'corr_A_gamma_eff': corr_A_gamma_eff,
+        'corr_A_Importance': flat_corr(A, info['I']) if 'I' in info else None,
         'mean_power_z': float(z.pow(2).mean().item()),
         'mean_power_z_g': float(z_g.pow(2).mean().item()),
         'mean_power_z_tx': float(z_tx.pow(2).mean().item()),

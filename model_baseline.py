@@ -80,7 +80,7 @@ class _Encoder(nn.Module):
         self.conv3 = _ConvWithPReLU(in_channels=32, out_channels=32,
                                     kernel_size=5, padding=2)  # padding size could be changed here
         self.conv4 = _ConvWithPReLU(in_channels=32, out_channels=32, kernel_size=5, padding=2)
-        self.conv5 = _ConvWithPReLU(in_channels=32, out_channels=2*c, kernel_size=5, padding=2)
+        self.conv5 = _ConvWithPReLU(in_channels=32, out_channels=c, kernel_size=5, padding=2)  # FIXED: out_channels=c (not 2*c)
         self.norm = self._normlizationLayer(P=P)
 
     @staticmethod
@@ -124,7 +124,7 @@ class _Decoder(nn.Module):
         super(_Decoder, self).__init__()
         # self.imgae_normalization = _image_normalization(norm_type='denormalization')
         self.tconv1 = _TransConvWithPReLU(
-            in_channels=2*c, out_channels=32, kernel_size=5, stride=1, padding=2)
+            in_channels=c, out_channels=32, kernel_size=5, stride=1, padding=2)  # FIXED: in_channels=c (not 2*c)
         self.tconv2 = _TransConvWithPReLU(
             in_channels=32, out_channels=32, kernel_size=5, stride=1, padding=2)
         self.tconv3 = _TransConvWithPReLU(

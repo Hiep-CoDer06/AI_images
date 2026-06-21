@@ -62,7 +62,7 @@ def compute_H_rule(mode_data):
     return -sum(p * np.log2(p) for p in probs if p > 0)
 
 def load_diagnostics():
-    data = {mode: {'sigma_A': [], 'E_top20': [], 'H_rule': []} for mode in modes}
+    data = {mode: {'sigma_A': [], 'E_top20': [], 'H_rule': [], 'corr_A_gamma_eff': [], 'corr_A_Importance': []} for mode in modes}
     available_snrs = []
     
     for snr in snr_values:
@@ -73,12 +73,15 @@ def load_diagnostics():
                 data[mode]['sigma_A'].append(None)
                 data[mode]['E_top20'].append(None)
                 data[mode]['H_rule'].append(None)
+                data[mode]['corr_A_gamma_eff'].append(None)
+                data[mode]['corr_A_Importance'].append(None)
             continue
         
         available_snrs.append(snr)
         with open(diag_path, 'r') as f:
             diag = json.load(f)
         
+        comps = diag.get('comparisons_to_full', {})
         for mode in modes:
             mode_data = diag['modes'].get(mode, {})
             A_stats = mode_data.get('A_stats', {})
@@ -86,6 +89,11 @@ def load_diagnostics():
             data[mode]['sigma_A'].append(A_stats.get('std', 0.0))
             data[mode]['E_top20'].append(compute_energy_concentration(E_ztx_hist))
             data[mode]['H_rule'].append(compute_H_rule(mode_data))
+            # corr_A_gamma_eff: from comparisons_to_full[mode]['corr_A_with_gamma_eff']
+            mode_comp = comps.get(mode, {})
+            data[mode]['corr_A_gamma_eff'].append(mode_comp.get('corr_A_with_gamma_eff', None))
+            # corr_A_Importance: from modes[mode]['corr_A_I']
+            data[mode]['corr_A_Importance'].append(mode_data.get('corr_A_I', None))
     
     return data, available_snrs
 
@@ -148,7 +156,7 @@ def create_plots(data, available_snrs):
     print(f"  Saved: report_plots_noeq/ablation_comparison.png")
     
     # Individual plots
-    for metric, ylabel in [('sigma_A', 'Dispersion (σA)'), ('E_top20', 'Energy Concentration (%)'), ('H_rule', 'Rule Entropy')]:
+    for metric, ylabel in [('sigma_A', 'Dispersion (σA)'), ('E_top20', 'Energy Concentration (%)'), ('H_rule', 'Rule Entropy'), ('corr_A_gamma_eff', 'Corr(A, γ_eff)'), ('corr_A_Importance', 'Corr(A, Importance)')]:
         fig, ax = plt.subplots(figsize=(10, 6))
         for mode in modes:
             name = mode_names[mode]
@@ -240,6 +248,48 @@ def create_log(data, available_snrs):
                 f.write(f"{v:>10.4f}" if v is not None else f"{'N/A':>10}")
             f.write(f"{np.mean(valid_vals):>10.4f}\n" if valid_vals else f"{'N/A':>10}\n")
         
+        f.write("\n")
+        
+        # Table 4: corr_A_gamma_eff
+        f.write("-" * 80 + "\n")
+        f.write("TABLE 4: CORRELATION A vs GAMMA_EFF (corr_A_gamma_eff)\n")
+        f.write("-" * 80 + "\n")
+        f.write(f"{'Mode':<20}")
+        for snr in available_snrs:
+            f.write(f"{snr:>10.1f}dB")
+        f.write(f"{'Mean':>10}\n")
+        f.write("-" * 80 + "\n")
+        
+        for mode in modes:
+            name = mode_names[mode]
+            vals = data[mode]['corr_A_gamma_eff']
+            valid_vals = [v for v in vals if v is not None]
+            f.write(f"{name:<20}")
+            for v in vals:
+                f.write(f"{v:>10.4f}" if v is not None else f"{'N/A':>10}")
+            f.write(f"{np.mean(valid_vals):>10.4f}\n" if valid_vals else f"{'N/A':>10}\n")
+        
+        f.write("\n")
+        
+        # Table 5: corr_A_Importance
+        f.write("-" * 80 + "\n")
+        f.write("TABLE 5: CORRELATION A vs IMPORTANCE (corr_A_Importance)\n")
+        f.write("-" * 80 + "\n")
+        f.write(f"{'Mode':<20}")
+        for snr in available_snrs:
+            f.write(f"{snr:>10.1f}dB")
+        f.write(f"{'Mean':>10}\n")
+        f.write("-" * 80 + "\n")
+        
+        for mode in modes:
+            name = mode_names[mode]
+            vals = data[mode]['corr_A_Importance']
+            valid_vals = [v for v in vals if v is not None]
+            f.write(f"{name:<20}")
+            for v in vals:
+                f.write(f"{v:>10.4f}" if v is not None else f"{'N/A':>10}")
+            f.write(f"{np.mean(valid_vals):>10.4f}\n" if valid_vals else f"{'N/A':>10}\n")
+        
         f.write("\n" + "=" * 80 + "\n")
         f.write("KEY OBSERVATIONS:\n")
         f.write("-" * 40 + "\n")
@@ -254,7 +304,7 @@ def create_log(data, available_snrs):
     # CSV
     csv_path = 'report_logs_noeq/data.csv'
     with open(csv_path, 'w', encoding='utf-8') as f:
-        f.write("Mode,SNR_dB,sigma_A,E_top20,H_rule\n")
+        f.write("Mode,SNR_dB,sigma_A,E_top20,H_rule,corr_A_gamma_eff,corr_A_Importance\n")
         for mode in modes:
             name = mode_names[mode]
             for i, snr in enumerate(snr_values):
@@ -263,7 +313,9 @@ def create_log(data, available_snrs):
                 sa = data[mode]['sigma_A'][i]
                 e = data[mode]['E_top20'][i]
                 h = data[mode]['H_rule'][i]
-                f.write(f"{name},{snr},{sa if sa is not None else ''},{e if e is not None else ''},{h if h is not None else ''}\n")
+                cg = data[mode]['corr_A_gamma_eff'][i]
+                ci = data[mode]['corr_A_Importance'][i]
+                f.write(f"{name},{snr},{sa if sa is not None else ''},{e if e is not None else ''},{h if h is not None else ''},{cg if cg is not None else ''},{ci if ci is not None else ''}\n")
     print(f"  Saved: {csv_path}")
 
 def main():
@@ -284,7 +336,7 @@ def main():
     print("\n" + "=" * 60)
     print("HOAN TAT!")
     print("=" * 60)
-    print(f"  - report_plots_noeq/  (4 PNG files)")
+    print(f"  - report_plots_noeq/  (7 PNG files)")
     print(f"  - report_logs_noeq/   ( TXT + CSV)")
     print("=" * 60 + "\n")
 
