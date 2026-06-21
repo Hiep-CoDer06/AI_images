@@ -252,6 +252,29 @@ def main():
     if "snr_only" in modes:
         print("[WARN] snr_only is an identity spatial controller in the current implementation.")
         print("[WARN] Treat it as a no-spatial-control diagnostic, not as true SNR-aware allocation.")
+
+    # Read snr_min_db and snr_max_db from checkpoint config for consistency
+    snr_min_db = 0.0
+    snr_max_db = 20.0
+    for mode in modes:
+        if mode == "baseline":
+            continue
+        ckpt_path = resolve_fis_ckpt_path(
+            mode=mode,
+            channel=args.channel,
+            fis_ckpt_root=args.fis_ckpt_root,
+            eq_tag=args.eq_tag,
+            fis_ckpt_map_json=args.fis_ckpt_map_json,
+        )
+        config_path = os.path.join(os.path.dirname(ckpt_path), "run_config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+                snr_min_db = cfg.get("snr_min", snr_min_db)
+                snr_max_db = cfg.get("snr_max", snr_max_db)
+                print(f"[INFO] Loaded SNR range from {config_path}: snr_min={snr_min_db}, snr_max={snr_max_db}")
+                break
+
     fis_models = {}
     loaded_fis_paths = {}
 
@@ -259,7 +282,8 @@ def main():
         if mode == "baseline":
             continue
         model = DeepJSCC_FIS(
-            c=c, ratio=args.ratio, channel_type=args.channel, rician_k=args.rician_k
+            c=c, ratio=args.ratio, channel_type=args.channel, rician_k=args.rician_k,
+            snr_min_db=snr_min_db, snr_max_db=snr_max_db
         ).to(device)
         if mode == "snr_only" and args.snr_only_from_baseline:
             print("Loading snr_only from baseline backbone (no-op diagnostic):", args.baseline_ckpt)

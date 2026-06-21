@@ -1,8 +1,8 @@
 {
-  "A_std": 0.0,
-  "A_range": 0.0,
-  "I_A_corr": 0.0,
-  "channel_rel_mean": 0.0,
+  "A_std": 0.033227114006876945,
+  "A_range": 0.16467484831809998,
+  "I_A_corr": 0.9981237798929214,
+  "channel_rel_mean": 0.6935064047574997,
   "delta_mean": 0.0,
   "score_abs_mean": 0.0
 }

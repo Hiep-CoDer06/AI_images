@@ -278,7 +278,20 @@ def hist_counts(x: torch.Tensor, bins: int = 12, x_min: float = None, x_max: flo
 
 
 def load_fis_model(ckpt_path: str, c: int, ratio: float, channel_type: str, rician_k: float, device: torch.device):
-    model = DeepJSCC_FIS(c=c, ratio=ratio, channel_type=channel_type, rician_k=rician_k).to(device)
+    # Read snr_min_db and snr_max_db from checkpoint config for consistency
+    snr_min_db = 0.0
+    snr_max_db = 20.0
+    config_path = os.path.join(os.path.dirname(ckpt_path), "run_config.json")
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            cfg = json.load(f)
+            snr_min_db = cfg.get("snr_min", snr_min_db)
+            snr_max_db = cfg.get("snr_max", snr_max_db)
+    
+    model = DeepJSCC_FIS(
+        c=c, ratio=ratio, channel_type=channel_type, rician_k=rician_k,
+        snr_min_db=snr_min_db, snr_max_db=snr_max_db
+    ).to(device)
     ckpt = torch.load(ckpt_path, map_location=device)
     model.load_state_dict(ckpt, strict=False)
     model.eval()

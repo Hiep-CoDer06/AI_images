@@ -1,33 +1,75 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
 
 # Dataset
 data/
 *.zip
 *.tar
 *.gz
+*.rar
 
-# Training outputs
+# Training outputs & Model weights
 out/
 runs/
 results/
-
-# Model weights
+exp_ctx/
 *.pt
 *.pth
 *.ckpt
+*.h5
+*.onnx
 
 # Logs
 *.log
+logs/
+tensorboard/
+*.csv
 
 # Visualization outputs
 visualization/*.png
 visualization/*.jpg
+plots_fixed/*.png
+plots_fixed/*.jpg
+diag_*/
+diag_out/
+diag_out_*/
+report_*/
+paper_sims_*/
 
 # OS
 .DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.iml
+.settings/
 
 # Env
 .env
 venv/
+env/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Temporary files
+*.tmp
+*.bak
+*.cache

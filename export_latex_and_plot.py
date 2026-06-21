@@ -2,11 +2,11 @@ import json
 import os
 import matplotlib.pyplot as plt
 
-# ====== INPUT FILES ======
+# ====== INPUT FILES (relative paths from project root) ======
 files = {
-    "AWGN": "/home/students/Documents/fisfinal/FIS_ENHANCE/paper_sims_awgn/paper_sims_results.json",
-    "Rayleigh_EQ": "/home/students/Documents/fisfinal/FIS_ENHANCE/paper_sims_eq/paper_sims_results.json",
-    "Rayleigh_noEQ": "/home/students/Documents/fisfinal/FIS_ENHANCE/paper_sims_noeq/paper_sims_results.json",
+    "AWGN": "paper_sims_awgn/paper_sims_results.json",
+    "Rayleigh_EQ": "paper_sims_eq/paper_sims_results.json",
+    "Rayleigh_noEQ": "paper_sims_noeq/paper_sims_results.json",
 }
 
 methods = ["baseline", "linear", "importance_only", "snr_only", "full"]
