@@ -57,7 +57,7 @@ class _TransConvWithPReLU(nn.Module):
         self.transconv = nn.ConvTranspose2d(
             in_channels, out_channels, kernel_size, stride, padding, output_padding)
         self.activate = activate
-        if activate == nn.PReLU():
+        if isinstance(activate, nn.PReLU):
             nn.init.kaiming_normal_(self.transconv.weight, mode='fan_out',
                                     nonlinearity='leaky_relu')
         else:

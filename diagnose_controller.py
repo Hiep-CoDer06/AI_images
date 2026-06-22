@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from pathlib import Path
 from typing import Dict, Any
 
 import numpy as np
@@ -29,8 +30,8 @@ def calculate_tech_metrics(I, A, W, q=0.20):
     energy_in_top = np.sum(A_flat[top_pixels_mask])
     total_energy = np.sum(A_flat)
     
-    # Ép logic vật lý: Nếu sigma_A = 0 (phân bổ phẳng hoàn toàn), E_top20 = q (20%)
-    if sigma_A < 1e-6:
+    # Flat I (e.g. snr_only) → top-q selection undefined → random baseline q
+    if np.std(I_flat) < 1e-6 or sigma_A < 1e-6:
         Etop_q = q
     else:
         Etop_q = energy_in_top / total_energy if total_energy > 0 else 0
@@ -460,7 +461,8 @@ def main():
 
     ch = Channel(channel_type=args.channel, snr_db=args.snr_db, rician_k=args.rician_k)
     ch.enable_rayleigh_equalization(args.rayleigh_equalize)
-    channel_ctx = ch.sample_context(batch_size=batch.shape[0], H=batch.shape[2], W=batch.shape[3], device=batch.device, dtype=batch.dtype)
+    latent_H, latent_W = batch.shape[2] // 4, batch.shape[3] // 4
+    channel_ctx = ch.sample_context(batch_size=batch.shape[0], H=latent_H, W=latent_W, device=batch.device, dtype=batch.dtype)
 
     results = {
         'meta': {'snr_db': args.snr_db, 'channel': args.channel},
@@ -507,11 +509,20 @@ def main():
             B = tensors['I'].shape[0] 
             batch_sigma, batch_Etop = [], []
             info = out.get('info', {})
-            rule_freqs = np.ones(6)/6
-            if info and 'rule2_strength' in info:
-                rule_freqs = np.mean(info['rule2_strength'].detach().cpu().numpy(), axis=(0, 1, 2))  
-            elif info and 'rule1_strength' in info:
-                rule_freqs = np.mean(info['rule1_strength'].detach().cpu().numpy(), axis=(0, 1, 2))
+            
+            # --- [FIX BUG H_RULE]: CHỈNH LẠI TRỤC AXIS THEO CHUẨN PYTORCH ---
+            rule_freqs = np.ones(6) / 6  # fallback: layer-2 has 6 rules
+            rs = info.get('rule2_strength') if 'rule2_strength' in info else info.get('rule1_strength')
+            if rs is not None:
+                rs_np = rs.detach().cpu().numpy()
+                if rs_np.ndim == 4:
+                    # PyTorch format: [Batch, Rules, Height, Width]
+                    if rs_np.shape[1] <= 16: # Trục 1 là số luật (thường 6, 8, 16)
+                        rule_freqs = np.mean(rs_np, axis=(0, 2, 3)) # Giữ lại trục 1
+                    else: 
+                        # Tensorflow format: [Batch, Height, Width, Rules]
+                        rule_freqs = np.mean(rs_np, axis=(0, 1, 2)) # Giữ lại trục cuối
+            # ----------------------------------------------------------------
 
             for b_idx in range(B):
                 I_single = tensors['I'][b_idx].squeeze().detach().cpu().numpy()
@@ -522,7 +533,12 @@ def main():
 
             sigma_A = np.mean(batch_sigma)
             Etop_20 = np.mean(batch_Etop)
-            H_rule = H_r
+
+            # [FIX BUG H_RULE]: Chỉ Full-FIS mới dùng luật mờ, các method khác ép Entropy về 0
+            if mode == 'full':
+                H_rule = H_r
+            else:
+                H_rule = 0.0
 
             log_path = os.path.join(args.save_dir, f'{mode}_metrics_log.txt')
             with open(log_path, 'w') as f:

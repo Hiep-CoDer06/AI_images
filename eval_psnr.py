@@ -81,7 +81,7 @@ def load_models(c, ratio, channel, rician_k, device):
                 c=c, ratio=ratio, channel_type=channel, rician_k=rician_k,
             ).to(device)
             model.channel.enable_rayleigh_equalization(RAYLEIGH_EQUALIZE[name])
-        model.load_state_dict(torch.load(ckpt_path, map_location=device), strict=True)
+        model.load_state_dict(torch.load(ckpt_path, map_location=device), strict=False)
         model.eval()
         models[name] = model
     return models

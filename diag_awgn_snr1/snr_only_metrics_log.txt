@@ -1,4 +1,4 @@
 FIS METRICS - MODE: SNR_ONLY (SNR: 1.0 dB)
 1. Dispersion (sigma_A): 0.0000
 2. Energy (E_top20): 20.00%
-3. Rule Entropy (H_rule): 3.0000
+3. Rule Entropy (H_rule): 0.0000

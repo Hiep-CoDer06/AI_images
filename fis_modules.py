@@ -85,7 +85,7 @@ class FIS_Importance(nn.Module):
         self.eps = eps
         self.rule_temp = float(rule_temp)
         self.rule_floor = float(rule_floor)
-        self.c = torch.tensor([0.88, 0.82, 0.68, 0.50, 0.18, 0.28, 0.62], dtype=torch.float32)
+        self.register_buffer('c', torch.tensor([0.88, 0.82, 0.68, 0.50, 0.18, 0.28, 0.62], dtype=torch.float32))
 
     @staticmethod
     def _edge_from_m(m: torch.Tensor) -> torch.Tensor:
@@ -187,7 +187,7 @@ class FIS_PowerAllocation(nn.Module):
         self.eps = eps
 
         # Balanced consequents: protect important regions while respecting physics
-        self.c = torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35], dtype=torch.float32)
+        self.register_buffer('c', torch.tensor([+0.95, +0.60, +0.18, +0.35, +0.02, -0.35], dtype=torch.float32))
 
     def _snr_unit(self, snr_db: float, device, dtype) -> torch.Tensor:
         s = (float(snr_db) - self.snr_min_db) / (self.snr_max_db - self.snr_min_db + self.eps)
@@ -227,7 +227,7 @@ class FIS_PowerAllocation(nn.Module):
         
         # Now C should be [B, H, W] to match I
         if C.shape != I.shape:
-            C = C[:, :1, :1].expand_as(I)
+            raise ValueError(f"channel_rel shape {tuple(C.shape)} does not match I shape {tuple(I.shape)}")
         
         return _clamp01(C)
 
